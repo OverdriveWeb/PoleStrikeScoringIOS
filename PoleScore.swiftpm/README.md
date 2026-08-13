@@ -59,14 +59,24 @@ something that works after dark.
    these classes: `pole`, `bottle`, `frisbee`, `person`, and optionally
    `ground`. Draw the pole box from the bottle down to the grass — the bottom
    edge is what becomes the ground line.
-4. Train free on Colab with a T4:
+4. **Export the dataset, not a model.** In Roboflow use *Export Dataset* and
+   pick **YOLOv8 PyTorch TXT**; that is the label layout Ultralytics reads, and
+   YOLO11 uses the same one. Roboflow's own *Train* button is a different
+   product: it trains a model you then call through Roboflow's hosted API,
+   which is cloud inference and does not produce a Core ML file. You do not
+   need it and it costs credits.
+5. Train free on Colab with a T4:
    ```python
+   from roboflow import Roboflow
+   rf = Roboflow(api_key="...")
+   dataset = rf.workspace("...").project("...").version(1).download("yolov8")
+
    from ultralytics import YOLO
    model = YOLO("yolo11n.pt")
-   model.train(data="data.yaml", epochs=100, imgsz=320)
+   model.train(data=f"{dataset.location}/data.yaml", epochs=100, imgsz=320)
    model.export(format="coreml", nms=True, quantize=8, imgsz=320)
    ```
-5. Rename to `GameDetector.mlpackage`.
+6. Rename to `GameDetector.mlpackage`.
 
 Use the smallest model that works — `yolo11n` (nano). This runs on every frame
 on a phone in your pocket; `yolo11x` will thermally throttle the device long
@@ -74,14 +84,23 @@ before it improves a single call.
 
 ### 1. Export notes
 
-Core ML export needs a Mac. Start at `imgsz=320` for live detection and only
-increase it if the disc is being missed mid-flight. Keep `nms=True`: it produces
-a pipeline Vision recognises directly, so no box decoding happens on device at
-all. `quantize=8` roughly halves the file with little accuracy cost.
+**You do not need a Mac.** `coremltools` converts on Linux, so a Colab notebook
+can produce the `.mlpackage` directly. The step that genuinely requires macOS is
+compiling `.mlpackage` into `.mlmodelc` — and the app does that itself, on
+device, at first launch. That is the reason the loader takes a URL instead of an
+Xcode-generated `GameDetector` class: it makes a Windows-plus-iPad workflow work
+with no Apple desktop anywhere in it.
 
-If you export with `nms=False`, the app still works — `YOLOOutputParser` decodes
-the raw head and runs its own NMS — but that path does more work per frame and
-is the less-tested of the two.
+Start at `imgsz=320` for live detection and only increase it if the disc is
+being missed mid-flight. `quantize=8` roughly halves the file for little
+accuracy cost.
+
+Keep `nms=True` if it works: it produces a pipeline Vision recognises directly,
+so no box decoding happens on device at all. Building that pipeline is the least
+portable part of the export, so if it fails off macOS, export with `nms=False`
+instead — `YOLOOutputParser` decodes the raw head and runs its own NMS. That
+path costs a little more per frame and is the less-tested of the two, but it is
+there precisely so a failed pipeline export is not a dead end.
 
 ### 2. Add it to the app
 
