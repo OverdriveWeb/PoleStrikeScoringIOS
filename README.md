@@ -52,5 +52,6 @@ video, no images, no account. The project URL and anon key are baked into
 | Path | What it is |
 |---|---|
 | `PoleScore.swiftpm/` | The app. Open this in Swift Playgrounds or Xcode. |
+| [`TRAINING.md`](TRAINING.md) | Step-by-step: filming, labelling in Roboflow, training on Colab, exporting Core ML, and getting it onto the device. Start here if you have no model yet. |
 | `Tests/DetectionTests.swift` | XCTest wrappers for the detection maths. Deliberately **outside** the package — a Playgrounds app package cannot host a test target. On device the same checks run from Coach → Detection self-checks. |
 | `PoleScore-v9.zip` | Packaged build, for downloading straight onto a device. |
