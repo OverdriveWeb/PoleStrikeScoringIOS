@@ -1,43 +1,56 @@
 # PoleStrikeScoringIOS
 
-Camera scoring for a glow-in-the-dark Strike Pole / Beersbee set. Runs on iPhone
-or iPad from Swift Playgrounds — no Apple Developer account needed.
+Camera scoring for a Strike Pole / Beersbee set. Runs on iPhone or iPad from
+Swift Playgrounds — no Apple Developer account needed.
 
-**Latest build: `PoleScore-v8.zip`** (`PoleScore-v7.zip` is the previous
-release, kept for reference).
+**Latest build: `PoleScore-v9.zip`** (`PoleScore-v7.zip` is the last release
+before the rewrite, kept for reference).
 
 Download the zip on the device, uncompress it in the Files app, and tap
-`PoleScore.swiftpm`. Full instructions, including the camera capability you must
-enable before the first run, are in
+`PoleScore.swiftpm`. Full instructions — including the camera capability you
+must enable before the first run, and where to put the Core ML model — are in
 [`PoleScore.swiftpm/README.md`](PoleScore.swiftpm/README.md).
 
-## What changed in v8
+## What changed in v9
 
-- **No court setup.** The six-tap calibration is gone. The app finds the poles
-  and the ground line by watching the scene, and re-reads them by itself if the
-  phone moves or you zoom.
-- **No colour settings.** Disc, bottle, and pole glow colours are learned while
-  you play, and re-learned when they change mid-game as the glow fades.
-- **Pinch to zoom**, exactly like the camera app, with double-tap to snap
-  between 1× and 2×. Camera orientation is detected instead of configured, and
-  the brightness threshold is chosen per frame from the frame's own histogram.
-- **A cloud vision model** reads the court from a single frame and reviews each
-  play after it is scored. Optional, free-tier, and rate-limited to one call per
-  play; the app works fully without it.
-- **Automatic mode is genuinely hands-off** — no prompts, no confirmations, no
-  waiting for anyone to press anything. Ask-first and Tap-only are unchanged.
-- **Shared learning is always on**, with the project baked into the build.
+- **On-device YOLO detection.** A Core ML model named `GameDetector` recognises
+  the poles, bottles, disc and players directly. Everything runs on the device's
+  neural engine: no AI service is called, no frames leave the phone, and it
+  works in a field with no signal.
+- **The court comes from the model.** A `pole` detection gives the whole pole in
+  one frame, and the bottom of a pole *is* the ground line — the measurement
+  worth a point every time it is wrong. Previously that had to be inferred from
+  what stayed still and where thrown objects landed.
+- **It degrades instead of failing.** With no model in the bundle, a model that
+  will not load, or a device too hot to run inference, the app falls back to the
+  original glow-brightness detector and says so on screen. It never crashes and
+  never silently pretends.
+- **Frames are dropped, never queued.** Inference is capped at 10 fps
+  (configurable), drops to 6 when the device reports a `serious` thermal state,
+  and stops entirely at `critical`.
+- **No cloud AI.** The Gemini/Claude Edge Function from the unreleased v8 has
+  been removed along with all frame uploads.
+
+Carried over from the v8 rewrite: no court setup, no glow-colour settings,
+pinch-to-zoom, detected camera orientation, a per-frame brightness threshold,
+and a genuinely hands-off Automatic mode. Ask-first and Tap-only are unchanged.
 
 ## Backend
 
-Two pieces, both on Supabase free tiers:
+One piece, on the Supabase free tier, and it is not an AI service:
 
 | Piece | What it does | Setup |
 |---|---|---|
 | `training_examples` table | Pools anonymous play measurements across installs | Run `PoleScore.swiftpm/supabase-schema.sql` once |
-| `polescore` Edge Function | Fronts the vision model so no model key ships in the app | `supabase secrets set GEMINI_API_KEY=…` then `supabase functions deploy polescore` |
 
-The Edge Function picks its provider from whichever secret is set —
-`GEMINI_API_KEY` (free tier) or `ANTHROPIC_API_KEY` (paid). With neither set it
-returns 503 and the app scores entirely on device, which is a supported
-configuration.
+What leaves the device is fourteen numbers per play and the correct call — no
+video, no images, no account. The project URL and anon key are baked into
+`CloudDefaults.swift`, so there is nothing to configure on the phone.
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `PoleScore.swiftpm/` | The app. Open this in Swift Playgrounds or Xcode. |
+| `Tests/DetectionTests.swift` | XCTest wrappers for the detection maths. Deliberately **outside** the package — a Playgrounds app package cannot host a test target. On device the same checks run from Coach → Detection self-checks. |
+| `PoleScore-v9.zip` | Packaged build, for downloading straight onto a device. |
