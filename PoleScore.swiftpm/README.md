@@ -24,22 +24,64 @@ The app looks for a Core ML model named **`GameDetector`** in its bundle. Withou
 one it still works — it falls back to the glow-brightness detector and says so
 on the game screen — but the model is what makes the ground line reliable.
 
-### 1. Export it
+### Which model?
 
-From Ultralytics on a Mac:
+There is no off-the-shelf beersbee detector, and the class the app most wants —
+`pole` — does not exist in any pretrained model. Every stock YOLO is trained on
+COCO, which has `frisbee`, `bottle` and `person` but no `pole` and no `ground`.
+
+So there are two routes, and the first is worth doing even if you intend to do
+the second.
+
+**Route 1 — a stock COCO model, about ten minutes.** You get `frisbee`, `bottle`
+and `person` free, and the app builds the court from the bottles instead of the
+poles. This will not be as accurate as a trained model, and a COCO model has
+never seen a glowing object at night, so expect it to struggle in the dark. Its
+real value is that it proves the whole pipeline end to end — model loads, boxes
+land on objects, court establishes, score moves — before you spend a day
+labelling.
 
 ```python
 from ultralytics import YOLO
-
-model = YOLO("best.pt")
-model.export(format="coreml", nms=True, quantize=8, imgsz=320)
+YOLO("yolo11n.pt").export(format="coreml", nms=True, imgsz=320)
 ```
 
-Start at `imgsz=320` for live detection and only increase it if the disc is
-being missed. `nms=True` is worth keeping: it produces a pipeline Vision
-recognises directly, so no box decoding happens on device at all.
+Rename the result to `GameDetector.mlpackage`.
 
-Rename the export to `GameDetector.mlpackage`.
+**Route 2 — train on your own court.** This is what gets you a `pole` class and
+something that works after dark.
+
+1. Record a few minutes of video on the phone, from where it will actually sit,
+   at night, with the set lit. Include throws, knocked bottles, catches.
+2. Pull 200–500 stills out of it. More matters less than variety: different
+   light, different distances, disc mid-flight, bottle mid-fall.
+3. Label them at [roboflow.com](https://roboflow.com) (free tier) with exactly
+   these classes: `pole`, `bottle`, `frisbee`, `person`, and optionally
+   `ground`. Draw the pole box from the bottle down to the grass — the bottom
+   edge is what becomes the ground line.
+4. Train free on Colab with a T4:
+   ```python
+   from ultralytics import YOLO
+   model = YOLO("yolo11n.pt")
+   model.train(data="data.yaml", epochs=100, imgsz=320)
+   model.export(format="coreml", nms=True, quantize=8, imgsz=320)
+   ```
+5. Rename to `GameDetector.mlpackage`.
+
+Use the smallest model that works — `yolo11n` (nano). This runs on every frame
+on a phone in your pocket; `yolo11x` will thermally throttle the device long
+before it improves a single call.
+
+### 1. Export notes
+
+Core ML export needs a Mac. Start at `imgsz=320` for live detection and only
+increase it if the disc is being missed mid-flight. Keep `nms=True`: it produces
+a pipeline Vision recognises directly, so no box decoding happens on device at
+all. `quantize=8` roughly halves the file with little accuracy cost.
+
+If you export with `nms=False`, the app still works — `YOLOOutputParser` decodes
+the raw head and runs its own NMS — but that path does more work per frame and
+is the less-tested of the two.
 
 ### 2. Add it to the app
 

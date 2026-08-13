@@ -467,11 +467,34 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             }
         }
 
+        // --- court without a pole class --------------------------------------
+        //
+        // Every pretrained YOLO is a COCO model, and COCO has `frisbee`,
+        // `bottle` and `person` but no `pole` and no `ground`. Building the
+        // court only from pole boxes would mean a stock model could never
+        // establish one, and the app would sit at "Looking for the poles"
+        // forever without ever scoring a throw.
+        //
+        // So the bottles stand in. `CourtDetector` already knows how to turn
+        // "bright things that stay in one place" into a court, and a bottle
+        // detection is exactly that with better provenance than a blob. Feeding
+        // it synthetic observations reuses the whole anchor, ground-line and
+        // drift apparatus rather than growing a second copy of it.
+        if !modelCourtAccepted {
+            courtDetector.observe(blobs: syntheticBlobs(from: reading), timestamp: timestamp)
+            if let estimate = courtDetector.current {
+                self.court = estimate.court
+                publishCourtState(ready: true, confidence: estimate.confidence,
+                                  summary: "Read from the model's bottles")
+            }
+        }
+
         if self.court == nil {
+            let progress = courtDetector.progress
             publishCourtState(ready: false, confidence: 0,
-                              summary: reading.poles.isEmpty
-                                  ? "Looking for the poles"
-                                  : "Found one pole - both need to be in shot")
+                              summary: progress > 0.05
+                                  ? "Reading the court... \(Int(progress * 100))%"
+                                  : "Looking for the poles and bottles")
         }
 
         // --- scoring ---------------------------------------------------------
@@ -504,6 +527,27 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
             self.status = result.status
             self.notice = result.notice
             if let outcome, scoring { self.onOutcome?(outcome) }
+        }
+    }
+
+    /// Model detections dressed up as `Blob`s so `CourtDetector` can consume
+    /// them.
+    ///
+    /// Only the box matters downstream: the detector uses position to find
+    /// anchors, the box's aspect ratio to tell a pole from a bottle, and its
+    /// lower edge as the ground line. Colour and brightness are unused on this
+    /// path, so they are filled with values that cannot accidentally mean
+    /// something — the glow classifier never sees these.
+    private func syntheticBlobs(from reading: DetectionBridge.Reading) -> [Blob] {
+        (reading.poles + reading.bottles).map { box in
+            Blob(box: box,
+                 hue: 0,
+                 saturation: 0,
+                 brightness: 1,
+                 // Clamped under the detector's own "that is a floodlight, not
+                 // a set" ceiling, which a full-height pole box would otherwise
+                 // trip.
+                 area: min(0.05, max(0.0002, box.w * box.h)))
         }
     }
 
